@@ -1,0 +1,107 @@
+---
+title: "machineLearningAssignment"
+author: "Yasneen Ashroff"
+date: "June 22, 2016"
+output: html_document
+---
+#Synopsis
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+#Data Processing
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+```{r}
+require(caret)
+require(RGtk2)
+require(rattle)
+require(cacher)
+require(rpart.plot)
+```
+#Data Loading and Cleaning
+read in the data. Anything with NA or DIV/0 should be considered a null value.
+```{r}
+training=read.csv('pml-training.csv',na.strings=c("NA", "", "#DIV/0!"))
+testing=read.csv('pml-testing.csv',na.strings=c("NA", "", "#DIV/0!"))
+```
+
+clean the data: Data appears to be a time series with the presence of windows and timestamps, but it does not seem that the data within a time period is dependent on other observations in the same time period. Hence we will remove the time period data from the analysis.; Remove first 7 columns: 
+```{r}
+training<-subset(training[,8:160])
+testing<-subset(testing[,8:160])
+```
+Some columns are only populated once per window. Remove any columns with more than 95% NA values
+```{r}
+training<-training[,colSums(is.na(training))<(0.95*nrow(training))]
+testing<-testing[,colSums(is.na(testing))<(0.95*nrow(testing))]
+```
+#Exploratory Data Analysis
+
+Create feature plots of totals from each category (belt, arm, dumbbell, forearm) vs classe
+```{r}
+featurePlot(x=training[,c("total_accel_belt","total_accel_arm","total_accel_dumbbell","total_accel_forearm")],y=training$classe,plot="density",
+            scales=list(x=list(relation="free"),
+                        y=list(relation="free")),auto.key=list(columns=5))
+```
+#Prediction Model
+Break the training set into training and validation
+```{r}
+inTrain <- createDataPartition(y=training$classe, p=0.7, list=FALSE)
+training <- training[inTrain,] # training set
+validation <- training[-inTrain,] #validation set
+```
+
+Create argument for trainControl function that specifies 10-fold cross validation repeated 10 times
+
+```{r}
+tr_Control <- trainControl(## 10-fold CV
+    method = "repeatedcv",
+    number = 10,
+    ## repeated ten times
+    repeats = 10)
+```
+
+Create a classification tree model using tr_control argument
+```{r}
+modFit<-train(classe~.,method="rpart",data=training, trControl=tr_Control)
+plot(modFit$finalModel,uniform=TRUE,main="Classification Tree")
+text(modFit$finalModel,use.n=TRUE,all=TRUE,cex=.8)
+modFit
+```
+
+We can see accuracy is low. Try again with Random Forest model, this time without repeating cross-validation which is computation-intensive.
+```{r cache=TRUE}
+tr_ControlRF <- trainControl(## 10-fold CV
+    method = "cv",
+    number = 10)
+modFitRF<-train(classe~.,method="rf",data=training)
+modFitRF
+```
+
+Test the model on validation set:
+```{r}
+pred<-predict(modFitRF,validation)
+```
+Plot the prediction versus actual
+```{r}
+qplot(validation$classe,pred,data=validation)
+```
+We can see the prediction is approximately a 45 degree line, so our prediction is accurate. Check the model statistics.
+```{r}
+modFitRF$finalModel
+```
+We can see the accuracy rate is very good. We expect the out of sample error rate to be (1 - Accuracy).
+
+We can also check confusion matrix, which shows high accuracy
+```{r}
+confusionMatrix(pred,validation$classe)
+```
+accuracy:
+```{r}
+1-confusionMatrix(pred,validation$class)$overall[[1]]
+```
